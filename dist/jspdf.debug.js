@@ -14,8 +14,8 @@
 
     /** @preserve
      * jsPDF - PDF Document creation from JavaScript
-     * Version 1.2.70 Built on 2017-09-21T13:01:14.673Z
-     *                           CommitID 1f408b78b5
+     * Version 1.2.70 Built on 2017-12-20T07:05:38.516Z
+     *                           CommitID 3a23f2615e
      *
      * Copyright (c) 2010-2014 James Hall <james@parall.ax>, https://github.com/MrRio/jsPDF
      *               2010 Aaron Spike, https://github.com/acspike
@@ -167,6 +167,8 @@
     		    textColor = options.textColor || '0 g',
     		    drawColor = options.drawColor || '0 G',
     		    activeFontSize = options.fontSize || 16,
+    		    activeCharSpace = options.charSpace || 0,
+    		    R2L = options.R2L || false,
     		    lineHeightProportion = options.lineHeight || 1.15,
     		    lineWidth = options.lineWidth || 0.200025,
     		    // 2mm
@@ -325,7 +327,7 @@
     				// prepend global change of basis matrix
     				// (Now, instead of converting every coordinate to the pdf coordinate system, we apply a matrix
     				// that does this job for us (however, texts, images and similar objects must be drawn bottom up))
-    				p = new Matrix(k, 0, 0, -k, 0, pageHeight).toString() + " cm\n" + p;
+    				p = new Matrix(k, 0, 0, -k, 0, pageHeight * k).toString() + " cm\n" + "/F1" + " " + 16 / k + " Tf\n" + p;
 
     				newObject();
     				if (compress) {
@@ -364,13 +366,18 @@
     			events.publish('postPutPages');
     		},
     		    putFont = function putFont(font) {
-    			font.objectNumber = newObject();
-    			out('<</BaseFont/' + font.PostScriptName + '/Type/Font');
-    			if (typeof font.encoding === 'string') {
-    				out('/Encoding/' + font.encoding);
+    			if (font.id.slice(1) >= 14) {
+    				var dictionary = font.metadata.embedTTF(font.encoding, newObject, out);
+    				dictionary ? font.objectNumber = dictionary : delete fonts[font.id];
+    			} else {
+    				font.objectNumber = newObject();
+    				out('<</BaseFont/' + font.postScriptName + '/Type/Font');
+    				if (typeof font.encoding === 'string') {
+    					out('/Encoding/' + font.encoding);
+    				}
+    				out('/Subtype/Type1>>');
+    				out('endobj');
     			}
-    			out('/Subtype/Type1>>');
-    			out('endobj');
     		},
     		    putFonts = function putFonts() {
     			for (var fontKey in fonts) {
@@ -547,6 +554,9 @@
     					case "opacity":
     						out("/ca " + f2(gState[p]));
     						break;
+    					case "stroke-opacity":
+    						out("/CA " + f2(gState[p]));
+    						break;
     				}
     			}
     			out(">>");
@@ -673,13 +683,13 @@
        * @property encoding {Object} Encoding_name-to-Font_metrics_object mapping.
        * @name FontObject
        */
-    		addFont = function addFont(PostScriptName, fontName, fontStyle, encoding) {
+    		addFont = function addFont(postScriptName, fontName, fontStyle, encoding) {
     			var fontKey = 'F' + (Object.keys(fonts).length + 1).toString(10),
 
     			// This is FontObject
     			font = fonts[fontKey] = {
     				'id': fontKey,
-    				'PostScriptName': PostScriptName,
+    				'postScriptName': postScriptName,
     				'fontName': fontName,
     				'fontStyle': fontStyle,
     				'encoding': encoding,
@@ -699,12 +709,11 @@
     			    BOLD = "bold",
     			    ITALIC = "italic",
     			    BOLD_ITALIC = "bolditalic",
-    			    encoding = 'StandardEncoding',
     			    ZAPF = "zapfdingbats",
-    			    standardFonts = [['Helvetica', HELVETICA, NORMAL], ['Helvetica-Bold', HELVETICA, BOLD], ['Helvetica-Oblique', HELVETICA, ITALIC], ['Helvetica-BoldOblique', HELVETICA, BOLD_ITALIC], ['Courier', COURIER, NORMAL], ['Courier-Bold', COURIER, BOLD], ['Courier-Oblique', COURIER, ITALIC], ['Courier-BoldOblique', COURIER, BOLD_ITALIC], ['Times-Roman', TIMES, NORMAL], ['Times-Bold', TIMES, BOLD], ['Times-Italic', TIMES, ITALIC], ['Times-BoldItalic', TIMES, BOLD_ITALIC], ['ZapfDingbats', ZAPF]];
+    			    standardFonts = [['Helvetica', HELVETICA, NORMAL, 'WinAnsiEncoding'], ['Helvetica-Bold', HELVETICA, BOLD, 'WinAnsiEncoding'], ['Helvetica-Oblique', HELVETICA, ITALIC, 'WinAnsiEncoding'], ['Helvetica-BoldOblique', HELVETICA, BOLD_ITALIC, 'WinAnsiEncoding'], ['Courier', COURIER, NORMAL, 'WinAnsiEncoding'], ['Courier-Bold', COURIER, BOLD, 'WinAnsiEncoding'], ['Courier-Oblique', COURIER, ITALIC, 'WinAnsiEncoding'], ['Courier-BoldOblique', COURIER, BOLD_ITALIC, 'WinAnsiEncoding'], ['Times-Roman', TIMES, NORMAL, 'WinAnsiEncoding'], ['Times-Bold', TIMES, BOLD, 'WinAnsiEncoding'], ['Times-Italic', TIMES, ITALIC, 'WinAnsiEncoding'], ['Times-BoldItalic', TIMES, BOLD_ITALIC, 'WinAnsiEncoding'], ['ZapfDingbats', ZAPF, undefined, 'StandardEncoding']];
 
     			for (var i = 0, l = standardFonts.length; i < l; i++) {
-    				var fontKey = addFont(standardFonts[i][0], standardFonts[i][1], standardFonts[i][2], encoding);
+    				var fontKey = addFont(standardFonts[i][0], standardFonts[i][1], standardFonts[i][2], standardFonts[i][3]);
 
     				// adding aliases for standard fonts, this time matching the capitalization
     				var parts = standardFonts[i][0].split('-');
@@ -1176,9 +1185,12 @@
     			fontName = fontName !== undefined ? fontName : fonts[activeFontKey].fontName;
     			fontStyle = fontStyle !== undefined ? fontStyle : fonts[activeFontKey].fontStyle;
 
+    			var originalFontName = fontName;
+
     			if (fontName !== undefined) {
     				fontName = fontName.toLowerCase();
     			}
+
     			switch (fontName) {
     				case 'sans-serif':
     				case 'verdana':
@@ -1195,8 +1207,10 @@
     				case 'serif':
     				case 'cursive':
     				case 'fantasy':
-    				default:
     					fontName = 'times';
+    					break;
+    				default:
+    					fontName = originalFontName;
     					break;
     			}
 
@@ -1440,6 +1454,9 @@
     				throw 'Invalid unit: ' + unit;
     		}
 
+    		// convert activeFontSize into current unit system
+    		activeFontSize /= k;
+
     		//---------------------------------------
     		// Public API
 
@@ -1463,6 +1480,9 @@
     			},
     			'getFontSize': function getFontSize() {
     				return activeFontSize;
+    			},
+    			'getCharSpace': function getCharSpace() {
+    				return activeCharSpace;
     			},
     			'getLineHeight': function getLineHeight() {
     				return activeFontSize * lineHeightProportion;
@@ -1533,11 +1553,11 @@
     		/**
        * An object representing a pdf graphics state.
        * @param parameters A parameter object that contains all properties this graphics state wants to set.
-       * Supported are: opacity
+       * Supported are: opacity, stroke-opacity
        * @constructor
        */
     		API.GState = function (parameters) {
-    			var supported = "opacity";
+    			var supported = "opacity,stroke-opacity".split(",");
     			for (var p in parameters) {
     				if (parameters.hasOwnProperty(p) && supported.indexOf(p) >= 0) {
     					this[p] = parameters[p];
@@ -1545,22 +1565,21 @@
     			}
     			this.id = ""; // set by addGState()
     			this.objectNumber = -1; // will be set by putGState()
-
-    			this.equals = function (other) {
-    				var ignore = "id,objectNumber,equals";
-    				if (!other || (typeof other === 'undefined' ? 'undefined' : babelHelpers.typeof(other)) !== babelHelpers.typeof(this)) return false;
-    				var count = 0;
-    				for (var p in this) {
-    					if (ignore.indexOf(p) >= 0) continue;
-    					if (this.hasOwnProperty(p) && !other.hasOwnProperty(p)) return false;
-    					if (this[p] !== other[p]) return false;
-    					count++;
-    				}
-    				for (var p in other) {
-    					if (other.hasOwnProperty(p) && ignore.indexOf(p) < 0) count--;
-    				}
-    				return count === 0;
-    			};
+    		};
+    		API.GState.prototype.equals = function equals(other) {
+    			var ignore = "id,objectNumber,equals";
+    			if (!other || (typeof other === 'undefined' ? 'undefined' : babelHelpers.typeof(other)) !== babelHelpers.typeof(this)) return false;
+    			var count = 0;
+    			for (var p in this) {
+    				if (ignore.indexOf(p) >= 0) continue;
+    				if (this.hasOwnProperty(p) && !other.hasOwnProperty(p)) return false;
+    				if (this[p] !== other[p]) return false;
+    				count++;
+    			}
+    			for (var p in other) {
+    				if (other.hasOwnProperty(p) && ignore.indexOf(p) < 0) count--;
+    			}
+    			return count === 0;
     		};
 
     		/**
@@ -1963,6 +1982,7 @@
     					text = [text];
     				}
     			}
+
     			if (typeof transform === 'string') {
     				align = transform;
     				transform = null;
@@ -2012,13 +2032,16 @@
     				text = ESC(text);
     			} else if (Object.prototype.toString.call(text) === '[object Array]') {
     				// we don't want to destroy  original text array, so cloning it
-    				var sa = text.concat(),
-    				    da = [],
-    				    len = sa.length;
+    				var sa = text.concat();
+    				var da = [];
+    				var len = sa.length;
+    				var activeFont = fonts[activeFontKey];
+    				var isHex = activeFont.encoding === "MacRomanEncoding" ? true : false;
+
     				// we do array.join('text that must not be PDFescaped")
     				// thus, pdfEscape each component separately
     				while (len--) {
-    					da.push(ESC(sa.shift()));
+    					da.push(isHex ? sa.shift() : ESC(sa.shift()));
     				}
     				var linesLeft = Math.ceil((y - this._runningPageHeight) / (activeFontSize * lineHeightProportion));
     				if (0 <= linesLeft && linesLeft < da.length + 1) {
@@ -2026,13 +2049,19 @@
     				}
 
     				if (align) {
-    					var left,
-    					    prevX,
-    					    maxLineLength,
-    					    leading = activeFontSize * lineHeightProportion,
-    					    lineWidths = text.map(function (v) {
-    						return this.getStringUnitWidth(v) * activeFontSize;
+    					var leading = activeFontSize * lineHeightProportion;
+    					var option = activeFontKey.slice(1) < 14 ? {} : {
+    						font: activeFont.metadata,
+    						fontSize: activeFontSize,
+    						charSpace: activeCharSpace
+    					};
+    					var lineWidths = text.map(function (v) {
+    						return this.getStringUnitWidth(v, option) * activeFontSize / k;
     					}, this);
+    					var left;
+    					var prevX;
+    					var maxLineLength;
+
     					maxLineLength = Math.max.apply(Math, lineWidths);
     					// The first line uses the "main" Td setting,
     					// and the subsequent lines are offset by the
@@ -2051,20 +2080,24 @@
     						throw new Error('Unrecognized alignment option, use "center" or "right".');
     					}
     					prevX = x;
-    					text = da[0] + ") Tj\n";
-    					for (i = 1, len = da.length; i < len; i++) {
+    					text = isHex ? activeFont.metadata.encode(activeFont.metadata.subset, da[0], R2L) : da[0];
+    					for (var i = 1, len = da.length; i < len; i++) {
     						var delta = maxLineLength - lineWidths[i];
     						if (align === "center") delta /= 2;
     						// T* = x-offset leading Td ( text )
-    						text += left - prevX + delta + " -" + leading + " Td (" + da[i];
-    						prevX = left + delta;
-    						if (i < len - 1) {
-    							text += ") Tj\n";
+    						if (isHex) {
+    							text += "> Tj\n" + (left - prevX + delta) + " -" + leading + " Td <" + da[i];
+    						} else {
+    							text += ") Tj\n" + (left - prevX + delta) + " -" + leading + " Td (" + da[i];
     						}
+    						prevX = left + delta;
     					}
     				} else {
-    					text = da.join(") Tj\nT* (");
+    					text = isHex ? da.map(function (out) {
+    						return activeFont.metadata.encode(activeFont.metadata.subset, out, R2L);
+    					}).join("> Tj\nT* <") : da.join(") Tj\nT* (");
     				}
+    				text = isHex ? '<' + text + '>' : '(' + text + ')';
     			} else {
     				throw new Error('Type of text must be string or Array. "' + text + '" is not recognized.');
     			}
@@ -2083,7 +2116,7 @@
     				//this._runningPageHeight += y -  (activeFontSize * 1.7);
     				//curY = f2(activeFontSize * 1.7);
     			} else {
-    				curY = f2(y);
+    				curY = y;
     			}
     			//curY = f2(((y - this._runningPageHeight));
 
@@ -2100,7 +2133,7 @@
 
     			out('BT\n' + activeFontSize * lineHeightProportion + ' TL\n' + // line spacing
     			strokeOption + // stroke option
-    			position + '\n(' + text + ') Tj\nET');
+    			position + '\n' + text + ' Tj\nET');
 
     			if (todo) {
     				//this.text( todo, x, activeFontSize * 1.7);
@@ -2112,6 +2145,7 @@
     		};
 
     		API.lstext = function (text, x, y, spacing) {
+    			console.warn('jsPDF.lstext is deprecated');
     			for (var i = 0, len = text.length; i < len; i++, x += spacing) {
     				this.text(text[i], x, y);
     			}
@@ -2427,7 +2461,8 @@
        * @name setFontSize
        */
     		API.setFontSize = function (size) {
-    			activeFontSize = size;
+    			// convert font size into current unit system
+    			activeFontSize = size / k;
     			out("/" + activeFontKey + " " + activeFontSize + " Tf");
     			return this;
     		};
@@ -2448,9 +2483,9 @@
        * @name setFont
        */
     		API.setFont = function (fontName, fontStyle) {
-    			activeFontKey = _getFont(fontName, fontStyle);
-    			// if font is not found, the above line blows up and we never go further
-    			out("/" + activeFontKey + " " + activeFontSize + " Tf");
+    			// activeFontKey = getFont(fontName, fontStyle);
+    			// // if font is not found, the above line blows up and we never go further
+    			// out("/" + activeFontKey + " " + activeFontSize + " Tf");
     			return this;
     		};
 
@@ -2466,8 +2501,8 @@
        * @name setFontStyle
        */
     		API.setFontStyle = API.setFontType = function (style) {
-    			activeFontKey = _getFont(undefined, style);
-    			// if font is not found, the above line blows up and we never go further
+    			// activeFontKey = getFont(undefined, style);
+    			// // if font is not found, the above line blows up and we never go further
     			return this;
     		};
 
@@ -2702,6 +2737,36 @@
     		};
 
     		/**
+       * Initializes the default character set that the user wants to be global..
+       *
+       * @param {Number} charSpace
+       * @function
+       * @returns {jsPDF}
+       * @methodOf jsPDF#
+       * @name setCharSpace
+       */
+
+    		API.setCharSpace = function (charSpace) {
+    			activeCharSpace = charSpace / k;
+    			return this;
+    		};
+
+    		/**
+       * Initializes the default character set that the user wants to be global..
+       *
+       * @param {Boolean} boolean
+       * @function
+       * @returns {jsPDF}
+       * @methodOf jsPDF#
+       * @name setR2L
+       */
+
+    		API.setR2L = function (boolean) {
+    			R2L = boolean;
+    			return this;
+    		};
+
+    		/**
        * Sets a either previously added {@link GState} (via {@link addGState}) or a new {@link GState}.
        * @param {String|GState} gState If type is string, a previously added GState is used, if type is GState
        * it will be added before use.
@@ -2873,7 +2938,7 @@
     		// continuing initialization of jsPDF Document object
     		//////////////////////////////////////////////////////
     		// Add the first page automatically
-    		addFonts();
+    		// addFonts();
     		activeFontKey = 'F1';
     		_addPage(format, orientation);
 
@@ -2908,7 +2973,7 @@
       * pdfdoc.mymethod() // <- !!!!!!
       */
     	jsPDF.API = { events: [] };
-    	jsPDF.version = "1.2.70 2017-09-21T13:01:14.673Z:f102811-2\hollaender";
+    	jsPDF.version = "1.2.70 2017-12-20T07:05:38.516Z:xarsh";
 
     	if (typeof define === 'function' && define.amd) {
     		define('jsPDF', function () {
